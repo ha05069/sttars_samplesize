@@ -1,0 +1,393 @@
+---
+title: "STTARS Simulation"
+author: "M Wilson"
+date: "09/05/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Aims:
+
+- First attempt at understanding clinical trial simulation in R. 
+- Leads on to first outline of proposed analysis plan.
+- Idea is to simulate the most basic version of the study outline and then progress from there.
+
+# Simplifications:
+
+1.  Single randomisation event leading to the creation of 2 groups:
+  - IMV 
+  - CPAP
+  
+2.  14 day mortality only outcome measure (i.e. not the composite)
+
+3.  No cross-over (ITT)
+
+
+# Options for R Packages:
+
+1.  Mediana:
+General framework for clinical trial simulations based on the Clinical Scenario Evaluation approach.
+
+2.  bayesCT:
+R package for simulation and analysis of adaptive Bayesian RCTs under a range of trial designs and outcome types.
+
+
+
+# Mediana
+
+Package design by Alex Dmitrienko, expert team includes Frank Harrell.
+
+Notes from: https://cran.r-project.org/web/packages/Mediana/vignettes/mediana.html 
+
+```{r, echo=FALSE}
+
+library(Mediana)
+library(tidyverse)
+library(officer)
+library(flextable)
+```
+
+
+Uses Clinical Scenario Evaluation framework:
+- Benda et al (2010)
+- Friede et al (2010)
+
+Likely similar to an approach of defining the data generating mechanism behind a trial protocol.
+
+Highlight three key areas, which are described as 'models':
+
+1. Data models
+- process of generating trial data (sample sizes, outcome distributions, parameters)
+
+2. Analysis models
+- define the statistical methods applied to the trial data (tests and adjustments)
+
+3. Evaluation models
+- methods for evaluating the performance of the proposed analysis
+
+
+## Worked Example - case study 1
+
+This example uses a trial with two treatment arms and a variety of clinical end points.  
+
+I'm not sure how best to describe the endpoint we've defined in our primary outcome measure.  We have described using a composite of 14 day mortality together with requirement for ongoing organ support (excluding respiratory support with low FiO2).
+
+Is this outcome best described as a binary endpoint?
+
+It doesn't seem to fit a standard survival type endpoint because we are not interested in the time to the event, but rather the proportion alive or dead at 14 days between the two groups.
+
+I've re-written the vignette below as to represent our study to help understanding.
+
+
+Consider a phase III trial for ventilation strategies in COVID-19 induced ARF.  The primary endpoint is survival at 14 days and whether this is different in the CPAP group vs. the IMV group.
+
+#### Step 1 ~ Treatment Effect Assumptions
+
+The first step in the example is defining treatment effect assumptions. Looking back at how other studies have done this, came across @wang2017.  This is a trial protocol for a multicentre, open-label, parallel-group RCT of NIV vs. IMV in adult immunocompromised patients with severe ARF in China.  This was based on a previous SR which showed NIV reduced mortality, LOS and LOICU stay in haem/AIDS patients with less severe ARF vs. IMV.  
+
+Their sample size calculation is based on:
+- h0 that 30 day all cause mortality in patients with NIV will be lower than those treated with IMV.  
+- Prev. estimates of ARF mortality in immunocompromised patients = 30-90%. 
+- Used their MA data:
+  - 30-day mortality in IMV group = 125/168 (75%)
+  - 30-day mortality in NIV group = 85/168 (50%)
+- Therefore they state they need 88 atients in each group to establish non-inferiority of NIV over IMV with 90% power and 1 sided 5% type 1 error rate.
+- They assume 25% patient attrition, requiring an overall sample size of 236.
+
+
+
+So, consider these estimates in defining treatment effect assumptions:
+
+```{r}
+
+assumptions <- 
+  tibble(
+    "outcome parameter set" = c("Pessimistic", "Standard", "Optimistic"),
+    "IMV response rate" = c("30%", "30%", "30%"),
+    "CPAP response rate" = c("25%", "30%", "35%")
+  )
+
+assumptions
+
+```
+
+
+Here I take response rate to mean the percentage of patients who survive after treatment is given.  I.e. in 100 patients with ARF who get IMV, 30 live and 70 die.  I am suggesting that at the most pessimistic, less people survive on cpap than IMV (25 vs 30%), the standard outcome would be that the survival is no different between the two groups, and the optimistic estimate would be that cpap improves survival (30 vs. 35%).
+
+NB - I don't know if these definitions are correct or these assumptions about response rates anywhere close to the truth - presumably we could estimate these better from either ICNARC data or UCH data?
+
+The other possibility is doing a non-inferiority type design? If we prove CPAP is non-inferior to IMV with respect to mortality? This might have power benefit too in terms of design?
+
+
+
+#### Step 2 ~ Define a Data Model
+
+In the case study, the next step is to combinethe three outcome parameter sets above with four sample size sets and the distribution of the primary endpoint is specified in the data model object.
+
+Initialise the data model:
+
+```{r}
+case.study1.data.model <- DataModel()
+```
+
+Then add the different required elements incrementally using +.
+
+The distribution of the primary endpoint (14 day mortality) i defined in the OutcomeDist object:
+
+```{r}
+case.study1.data.model <- DataModel() +
+  OutcomeDist(outcome.dist = "BinomDist")
+```
+
+Next apply a selection of potential sample sizes in each treatment arm (this seems to be plucked out of the air at this stage).
+
+
+```{r}
+case.study1.data.model <- DataModel() +
+  OutcomeDist(outcome.dist = "BinomDist") +
+  SampleSize(seq(50, 70, 5))
+```
+
+We are interested in performing power calculations under three different treatment effect scenarios:
+
+1.  CPAP is worse than IMV (pessimistic)
+2.  CPAP is equivalent to IMV (standard)
+3.  CPAP is better than IMV (optimistic)
+
+Under these pessimistic scenario we expect cpap to worsen mortality by 5% compared to IMV.  Under the standard scenario the mortality effect is equal.  Under the optimistic scenario we expect cpap to improve mortality by 5% compared to IMV.  
+
+So next describe the three outcome parameter sets:
+
+```{r}
+# outcome parameter set 1 (pessimistic)
+
+outcome1.IMV <- parameters(prop = 0.30)
+outcome1.cpap <- parameters(prop = 0.25)
+
+# outcome parameter set 2 (standard)
+
+outcome2.IMV <- parameters(prop = 0.30)
+outcome2.cpap <- parameters(prop = 0.30)
+
+# outcome parameter set 3 (optimistic)
+
+outcome3.IMV <- parameters(prop = 0.30)
+outcome3.cpap <- parameters(prop = 0.35)
+
+```
+
+Finally, combine the three outcome parameter sets together with the sample size sets and the distribution function for the primary endpoint:
+
+```{r}
+case.study1.data.model <- 
+  DataModel() +
+  OutcomeDist(outcome.dist = "BinomDist") +
+  SampleSize(seq(50, 70, 5)) +
+  Sample(id = "IMV",
+         outcome.par = parameters(outcome1.IMV, outcome2.IMV, outcome3.IMV)) +
+  Sample(id = "CPAP",
+         outcome.par = parameters(outcome1.cpap, outcome2.cpap, outcome3.cpap))
+
+```
+
+#### Step 3 ~ Define an analysis model
+
+This uses a standard two-sample test for comparing proportions to assess the treatment effect:
+
+```{r}
+case.study1.analysis.model <- 
+  AnalysisModel() +
+  Test(id = "IMV vs CPAP",
+       samples = samples("IMV", "CPAP"),
+       method = "PropTest")
+```
+
+
+#### Step 4 ~ Define an evaluation model
+
+The evaluation model is used to specify the criteria for success or metrics for the evaluation of how the data and analysis models perform in the setting of the suggested clinical scenario.
+
+Optional success criteria included (can be customised):
+- Marginal power
+- Weighted power
+- Disjunctive power (probability of achieving statistical significance in at least one test included in the test argument)
+- Conjunctive power (prob of achieving significance in all tests)
+- ExpectedRejPower - compute the expected number of statistical significance tests.
+
+
+
+For this example the evaluation model is the same used in the case of a normally distributed endpoint i.e. one which relies on marginal power.
+
+```{r}
+case.study1.evaluation.model <- 
+  EvaluationModel() +
+  Criterion(id = "Marginal Power",
+            method = "MarginalPower",
+            tests = tests("IMV vs CPAP"),
+            labels = c("IMV vs CPAP"),
+            par = parameters(alpha = 0.025))
+```
+
+
+#### Step 5 ~ Perform Clinical Scenario Evaluation
+
+After specifying all the models, can evaluate the success criteria specified in the evaluation model using the CSE function.
+
+
+```{r}
+# simulation parameters:
+
+case.study1.sim.parameters <- 
+  SimParameters(n.sims = 1000,
+                proc.load = "full",
+                seed = 42938001)
+
+# perform cse:
+
+case.study1.results = CSE(case.study1.data.model,
+                          case.study1.analysis.model,
+                          case.study1.evaluation.model,
+                          case.study1.sim.parameters)
+
+# the most important component of the results object is the data frame contained in the list names simulation.results, this contains the values of the success criteria and metrics defined in the evaluation model.
+
+```
+
+```{r}
+summary(case.study1.results)
+
+# can save to an object to produce graphical summaries using ggplot
+
+case.study1.simulation.results <- summary(case.study1.results)
+```
+
+
+Can also generate a simulation report in word:
+
+```{r}
+case.study1.presentation.model <- PresentationModel()
+
+case.study1.presentation.model <- 
+  case.study1.presentation.model +
+  Project(username = "Matt Wilson",
+          title = "CPAP vs. IMV Trial 1",
+          description = "Clinical trial of early IMV vs continued CPAP in COVID-19 patients with acute respiratory failure")
+```
+
+
+Generate report:
+
+```{r}
+GenerateReport(presentation.model = case.study1.presentation.model,
+               cse.results = case.study1.results,
+               report.filename = "Trial 1 (binomially distributed endpoint).docx")
+```
+
+
+# Notes
+
+This evaluation has made several assumptions and decisions, starting with how the treatment effect is estimated at the beginning.  
+I have hypothesised that IMV makes at least a 30% improvement on mortality in COVID-19 ARF - where would we get a better estimate for this? Is it even possible to get a more informed estimate?
+
+Perhaps it doesn't make any difference what the baseline treatment effect of IMV is, only what the difference in effect between IMV and CPAP?  Presumably it is the magnitude of the difference in estimated treatment effect which has the largest effect on the sample size required?
+
+Currently, I have stated that there are three potential options when comparing these two interventions, either cpap is better, worse or at least the same as IMV in terms of mortality.  The imputed difference we are looking to detect in the case of positive or negative mortality impact is currently set at 5%, but perhaps we would value as low as 1% improvement (or worsening) in mortality - currently no margin of error to this -> is this a Bayesian approach?  Looking at the literature, one RCT of similar design [@wang2017] used a previously conducted meta-analysis of NIV vs IMV to source a proposed treatment effect (reduction in 30 day mortality) of 25%, but it seems unlikely that this represents a clinically sensible starting point for treatment effect of cpap vs. IMV in COVID 19?
+
+Looking at the results, outcome 1 (pessimistic - cpap worse than IMV) seems to require lower sample sizes to attain significance than outcome 3 (optimistic - cpap better than IMV), by the same estimated margin of treatment effect (+/- 5%), accross the same predefined sample sizes (50-70) - not sure why this is?
+
+
+# Next Steps:
+
+1.  Confirm ballpark estimates for treatment effect sizes
+2.  Work out estim
+
+=======================================================================
+
+# Appendix of Learning Points for Matt
+
+Intention to Treat Analysis [@mccoy2017]
+
+Where the integrity of the randomisation in an RCT is maintained in the analysis phase by analysing patients acording to the group to which they were originally assigned, not necessarily the treatment they received, in order to limit bias.
+
+How might this work in our example?
+
+So you want to evaluate whether continuing CPAP (intervention) is more effective at preventing death (outcome) than early IMV (comparator) in ARF.
+
+You take 200 patients and randomly allocate 100 to either IMV or CPAP.  Where Group A represent the CPAP group and Group B represent the active control group (IMV).  You look at both after 14 days and you compare the proportion of people in each group who have died.
+
+Assume the truth is that CPAP makes no difference to IMV and that at 14 days the number of people who have died is the same in each group e.g. 60/100.  
+
+One way of doing the analysis is "Per Protocol" also referred to as efficacy/exploratory analysis or analysis by treatment administered.
+
+One possibility in this study is that patients who are randomised to CPAP end up deteriorating and receiving IMV prior to CPAP.  Put another way, at any point during the study, patients may progress from CPAP to IMV (but not the other way around).  Another possibility is that the patient dies before receiving CPAP.  
+
+Let's say that of the 60 deaths, 15 occur before the patient actually receives CPAP (either they die or get IMV before CPAP).  15/60 = 25%.  In Group B, no one was getting CPAP anyway so the death rate in this group remains 60/100.  
+
+The risk of death in Group A vs. Group B (i.e. the relative risk) is therefore 0.25/0.6 = 42%, therefore the relative risk reduction of death in Group A vs. Group B = 1 - 0.42 = 58%.  
+
+As such we might, potentially spuriously, conclude that CPAP affords a reduced risk of death of 58% when compared with IMV.
+
+The idea is that analysing patients according to the treatment they received (as-treated analysis) rather than their original randomised assignment introduces bias into the study, disrupting the original prognostic balance created by the randomisation.
+
+ITT is the opposite to this strategy, where patients are analysed according to the results of the original randomisation, no matter what the treatment they actually received.  E.g. Group A 60/100, Group B 60/100 == RR 1 and as such the relative risk reduction is 0 (1-1).  Essentially because patients who did not receive the randomised treatments are not systematically excluded from the analysis (bias).  In order for removal of said patients not to bias the study, they would have had to have had exactly the same prognostic characteristics as those that remain.  
+
+This might also be thought about in the context of adherence to randomised treatment.  
+
+Whilst ITT preserves the randomisation and limits bias in the analysis of an RCT, when a treatment is actually effective vs. comparator and there is substantial nonadherence to the randomisation, ITT analysis will underestimate the magnitude of the treatment effect that occurs in the adherent patients, most of the time this is fine because it is better to have an underestimated treatment effect which is unbiased than a large treatment effect with doubts.  
+
+=======================================================================
+
+Composite Endpoints in RCTs [@mccoy2018]
+
+**Some notes on how composite endpoints work, why they are used, some problems with their selection to help justify the choices made.**
+
+Problem is that the benefit of new treatments is increasingly marginal. Smaller treatment effect sizes requires larger sample sizes, which may be prohibitive.
+
+Composite endpoint consists of at least two or more distinct endpoints called components.  The components are used to achieve adequate statistical power for a study by contributing to the overall composite event rate. 
+
+Benefits:
+- Increased incidence rates of the composite endpoint
+- Improved ability to detect differences in the primary endpoint
+- Higher event rates and increased statistical precision means having to randomise fewer patients to answer the question.
+- Avoid competing risks
+- Where there is no obvious choice for a primary outcome measure
+
+*in our case we have decided to use a composite of two clinically important component endpoints - 14 day mortality (to allow a rapid reflection of the short term benefit of these acute modalities in an evolving pandemic) and ongoing organ support (excluding respiratory support only with FiO2 < 0.5).  The benefits of this will be a higher event rate and greater statistical precision, allowing us to detect a smaller difference in treatment effect at a smaller sample size.*  
+
+
+Challenges:
+- Difficult interpretation, especially if the component endpoints are themselves not clinically meaningful
+- If the component endpoints have very different importance to different end users (i.e. clinicians vs. patients) then interpretation in the setting of medical decision making is difficult.
+- Similarly if there is a large gradient in the frequency of the component endpoints for least and most important components but they are given equal weighting by combining into a composite. 
+
+How to evaluate then: (in the context of this study)
+
+1.  Are the component endpoints of similar importance to patients?
+*Yes. 14 day mortality and ongoing organ support (excluding single respiratory support with low FiO2) are probably of near equivalent importance to both clinicians and patients in the context of critical care. -> needs some PPI input?*
+
+2.  Did the more or less important endpoints occur with similar frequency?
+*No. If you consider 14 day mortality of more importance than ongoing organ support, then there is likely to be a large difference in event rate between mortality and ongoing organ support I think.*
+
+3.  Can one be confident that the component endpoints share similar relative risk reductions?
+- Is the underlying biology of the components similar enough such that one would expect to see similar relative risk reductions?
+
+
+*I.e. would cpap be expected to reduce mortality to the same extent as reducing the ongoing requirement for organ support at d.14?  e.g. if cpap stops you dying does it make you completely better (i.e. reducing the requirement for ongoing organ support) or do you continue to need high level care going onward (in which case the difference in relative risk reduction between the two endpoints is larger?).*
+
+
+- Are the point estimates of the relative risk reductions similar and are the confidence intervals sufficiently narrow?
+*Probably...?*
+
+
+What does this composite endpoint actually mean in our case?
+14 day mortality is a binary endpoint Y|N, 1|0.  
+Ongoing organ support is a binary endpoint Y|N, 1|0.  
+
+So each individual participant gets a result on d.14, if they died (1), if they didn't are they on ongoing organ support etc. (1).  
+
+Overall there is a distribution of success and failure i.e. a binomial distribution.  
+
+
