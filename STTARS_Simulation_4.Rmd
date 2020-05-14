@@ -1,0 +1,100 @@
+---
+title: "STTARS_Simulation_4"
+author: "M Wilson"
+date: "14/05/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Aims
+
+- Thoughts on how to analyse the second randomisation step of the study.
+
+
+
+# Background:
+
+Following the initial randomisation step on admission to either IMV or CPAP, clinicians receive a nudge for each patient in the study, who is on CPAP at each 12 hour handover point.
+
+The nudge asks if there is clinical equipoise around the decision of whether to continue CPAP or start IMV during the next 12 hour period.  
+
+In most cases it is anticipated that the clinicians will not have equipoise around the decision and will continue as they see best.  However, in some circumstances they may not know what the best course of action is.  Given there is little evidence to inform this decision, they may wish to learn from the results of whatever decision is made.  In this case, they would be encouraged to submit the patient in question for repeat randomisation to either starting IMV or continuing current CPAP.  
+
+Having obtained the allocation decision, the patient proceeds to either a further 12 hour period of CPAP, or to intubation and starting of IMV.  
+
+
+
+# Reverse Thinking
+
+Start from the perspective of analysing an observational study with the aim of identifying the optimal duration of cpap treatment. 
+
+You would have a dataset containing individual patients, their respiratory support status at each 12 hour period from the start of the study and an indication of whether their status changed during the subsequent 12 hour period of observation.  
+
+You might use an instrumental variable approach to answer this question, where the outcome (Y) is continuous (for simplicity initially) such as length of stay on ICU (days).  The exposure (X) could be continuous e.g. number of hours on CPAP, or binary e.g. CPAP at each 12 hour time point Y|N.  
+
+In our observational study, the instrument (Z) would be the physician's preference for either continuing CPAP (Z = 0) or starting IMV (Z = 1) at each 12 hour time point.  In our proposed RCT, we capture the physician preference in the form of an accept/reject random nudge to either Z = 0 | Z = 1. 
+
+Back to the observational study, we must demonstrate the assumptions of the IV analysis, namely, 
+that the instrument Z is not associated with unobserved confounders (U) which determine the values of both Y (length of ICU stay) and X (duration of CPAP, hours).  
+
+One example of an unmeasured confounder in this case might be ACE genotype which might predispose to more severe infection, producing longer length of stay and shorter duration of CPAP?
+
+The instrument (Z) must be correlated with the exposure (X) but not with outcome (Y) other than through mediating X.  A strong instrument is one which causes large variation in X and this relationship must be estimated.  A weak instrument will have a low power to detect a causal effect and may induce bias.  
+
+
+## Causal Assumptions
+
+The goal is to identify and estimate the causal effect of duration of CPAP (X) on length of ICU stay (Y).  There are likely to be many common causes of both X and Y and these will not all be observable.  Therefore, we seek to use physician preference for continuing cpap over starting IMV as an instrument for X.  If the physician has a preference for IMV then the duration of CPAP will be shorter, but if the physician thinks there is benefit from continued application of CPAP then they may opt to continue for a longer duration. 
+
+We assume that the instrument is only able to directly influence Y through it's action on Z.  
+
+
+```{r}
+# let's say you have 100 patients on cpap at the beginning:
+
+n <- c(1:100)
+
+# each of these patients has a length of stay on ICU (hours) between 0 and 100 days
+
+los <- 
+  runif(100, min = 0, max = 2400)
+
+# every patient received cpap, but for varying time periods (hours), between 1 and 120 hours
+
+cpap_duration <- 
+  runif(100, min = 1, max = 120)
+
+
+# combine into a basic dataframe:
+
+tbl1 <- 
+  tibble(
+    n = n,
+    los = los,
+  )
+
+tbl1 <- 
+  tbl1 %>% 
+  mutate(cpap = runif(100, min = 1, max = los))
+
+# check the duration of cpap does not exceed los:
+
+tbl1 %>% 
+  filter(cpap > los) # 0
+
+```
+
+
+
+
+
+
+
+# Bibliography
+
+1. [@walker2017]
+2. [@keele2018]
