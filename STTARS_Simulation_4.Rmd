@@ -10,6 +10,12 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 
+```{r}
+library(tidyverse)
+library(naniar)
+
+```
+
 # Aims
 
 - Thoughts on how to analyse the second randomisation step of the study.
@@ -77,6 +83,8 @@ tbl1 <-
     los = los,
   )
 
+# make sure you can't be on cpap longer than your los:
+
 tbl1 <- 
   tbl1 %>% 
   mutate(cpap = runif(100, min = 1, max = los))
@@ -86,8 +94,76 @@ tbl1 <-
 tbl1 %>% 
   filter(cpap > los) # 0
 
+# because we are only interested in the first 5 days of treatment (as this is the randomisation window and assuming most people on cpap will be below this duration), cap the max cpap value to 120:
+
+tbl1 <- 
+  tbl1 %>% 
+  mutate(cpap = if_else(cpap > 120, 120, cpap))
+
+# floor each to a round hour
+
+tbl1 <- 
+  tbl1 %>% 
+  mutate(los = floor(los)) %>% 
+  mutate(cpap = floor(cpap))
+
+# create an individual variable for each 12 hour period, up to 120 hours, fill with 1 if IMV or 0 if CPAP 
+
+tbl1 <- 
+  tbl1 %>% 
+  mutate("X_at_12" = if_else(cpap > 12, 1, 0)) %>% 
+  mutate("X_at_24" = if_else(cpap > 24, 1, 0)) %>% 
+  mutate("X_at_36" = if_else(cpap > 36, 1, 0)) %>% 
+  mutate("X_at_48" = if_else(cpap > 48, 1, 0)) %>% 
+  mutate("X_at_60" = if_else(cpap > 60, 1, 0))
+
+# create a random nudge at each 12 hour window:
+
+tbl1 <- 
+  tbl1 %>% 
+  mutate("Z_at_12" = sample(0:1, size = 100, replace = T)) %>% 
+  mutate("Z_at_24" = sample(0:1, size = 100, replace = T)) %>% 
+  mutate("Z_at_36" = sample(0:1, size = 100, replace = T)) %>% 
+  mutate("Z_at_48" = sample(0:1, size = 100, replace = T)) %>% 
+  mutate("Z_at_60" = sample(0:1, size = 100, replace = T))
+
 ```
 
+
+
+```{r}
+
+# actually what we want to do is START by generating the random nudges, then extrapolate whether they were followed or not based on a compliance rate of x% and then obtain the duration of cpap, and then look at los (at which point we could derive a formula to force a correlation between los and cpap duration to enable the rest of the analysis to run).
+
+# first do it for 2 shifts (24 hours)
+
+tbl2 <- 
+  tbl1 %>% 
+  select("n","X_at_12", "Z_at_12", "X_at_24", "Z_at_24")
+
+# the patient state at 12 hours should first be observed (X_at_12), then the nudge randomisation result (Z_at_12), then the next X value should indicate whether the allocation was complied with or not.
+
+# change the first X allocation to a random sample rather than derived based on duration of cpap as in the first attempt
+
+tbl2 <- 
+  tbl2 %>% 
+  mutate(X_at_12 = sample(0:1, size = 100, replace = T))
+
+# if the state of X at 12 hours is 1 (IMV) then no further randomisation occurs and no further monitoring is required so the rest of the columns should be NA.
+
+# I can't seem to replace the zeros with NA based on a condition, so let's make 1 == CPAP and 2 == IMV and 0 == NA for now:
+
+tbl2 %>% 
+  mutate(X_at_12 = if_else(X_at_12 == 0, 1, 2)) %>% 
+  mutate(Z_at_12 = if_else(X_at_12 == 2, 0, "RANDOMISE")) %>% 
+  View()
+
+tbl2 %>% 
+  mutate(Z_at_12 = if_else(X_at_12 == 1, 0, Z_at_12)) %>% 
+  View()
+
+
+```
 
 
 
