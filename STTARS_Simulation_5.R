@@ -1,5 +1,6 @@
-# this is a continuation of STTARS_Simulation_4.Rmd and hopefully a more succint re-writing of the code for review
-
+# Aims:
+# Define participant flow through the study following the initial randomisation
+# Create a simulated data set to represent this study flow
 
 # we have a sample of 1000 patients enrolled.
 
@@ -146,6 +147,21 @@ tbl <-
 # no patients left on cpap
 
 
+# ============================================================================================ #
+
+# make a graph showing the breakdown of study participants at each review point:
+
+tbl %>% 
+  ggplot(aes(x = as.factor(x_at_12))) +
+  geom_bar()
+
+tbl %>%
+  filter(!is.na(x_at_24)) %>% 
+  ggplot(aes(x = as.factor(x_at_24))) +
+  geom_bar()
+
+# ============================================================================================ #
+
 # ideally this would be automated/condensed into some kind of function which would take 
 # sample size (number), 
 # an initial proportion eligible (x_at_12 != IMV) (%),
@@ -155,3 +171,20 @@ tbl <-
 
 # it would give as outputs:
 # number of patients continuing in the trial at each time point
+
+n <- 1000
+prop.eligible <- 0.5
+prop.equipoise <- 0.1
+prop.noncomp <- 0.1
+prop.crossover <- 0.05
+
+simulate <- 
+  function(
+    n,
+    prop.eligible,
+    prop.equipoise,
+    prop.noncomp,
+    prop.crossover) {
+    
+    
+  }
