@@ -151,16 +151,105 @@ tbl2 <-
 
 # if the state of X at 12 hours is 1 (IMV) then no further randomisation occurs and no further monitoring is required so the rest of the columns should be NA.
 
-# I can't seem to replace the zeros with NA based on a condition, so let's make 1 == CPAP and 2 == IMV and 0 == NA for now:
+# do this stepwise:
 
-tbl2 %>% 
-  mutate(X_at_12 = if_else(X_at_12 == 0, 1, 2)) %>% 
-  mutate(Z_at_12 = if_else(X_at_12 == 2, 0, "RANDOMISE")) %>% 
-  View()
+# 1.  Create the state of the patient (X) at the 12 hour review, then assign a value as to whether or not they are eligible for randomisation at that point (T|F), if they are ventilated, then they will not be randomised.
 
-tbl2 %>% 
-  mutate(Z_at_12 = if_else(X_at_12 == 1, 0, Z_at_12)) %>% 
-  View()
+tbl2 <- 
+  tbl2 %>% 
+  mutate(elig_for_R = if_else(X_at_12 == 1, FALSE, TRUE)) %>% 
+  select("n","X_at_12", "elig_for_R")
+
+# 2. create an empty column of NAs for the randomisation allocation at 12 hours:
+
+tbl2 <- 
+  tbl2 %>% 
+  mutate("Z_at_12" = NA)
+
+# 3. highlight the patients eligible for randomisation and leave the rest with NA values
+
+tbl2 <- 
+  tbl2 %>% 
+  mutate(Z_at_12 = ifelse(elig_for_R == T, T, NA))
+
+# 4. replace the T value with a randomly generated 0 or 1 for only those eligible:
+
+tbl2 <- 
+  tbl2 %>% 
+  mutate(Z_at_12 = ifelse(Z_at_12 == T, sample(0:1, 
+                                               size = sum(!is.na(Z_at_12)), 
+                                               replace = T)))
+
+
+# after determining eligibility for re-randomisation, the clinician receives the nudge prompt to consider re-randomisation:
+
+# "Do you have equipoise to submit this patient for randomisation?"
+
+# the clinician can either say YES or NO at this point.
+
+# start with the assumption that in 10% of cases the clinician will have enough equipoise to submit the patient to re-randomisation.  
+
+# so for 10% of those without NA values at Z_at_12, the clinician would "unmask" the randomisation allocation:
+
+  # select the eligible patients into a new object:
+
+elig_sample <- 
+  tbl2 %>% 
+  filter(!is.na(Z_at_12))
+
+  # select a random sample of 10% of the eligible patients who the clinician has equipoise for:
+
+ten_percent <- 
+  elig_sample %>% 
+  sample_frac(0.10)
+
+  # create a new column for the selected, eligible patients in the main table:
+
+tbl2 <- 
+  tbl2 %>% 
+  mutate(equipoise_at_12 = if_else(tbl2$n %in% ten_percent$n, T, F))
+
+# NB - you could do this the othe way around so the patients are randomised at this point, rather than just unmasked, I don't know if this would make a difference or not?
+
+  # it feels like this makes more sense, so the eligible people would be subject to a 1:1 randomisation between cpap and imv.
+
+# the next decision is, for those eligible patients, with equipoise, does the clinician then comply with the unmasked allocation recommendation:
+
+# 
+ 
+
+# next we observe the patient state (X) at 24 hours (the next randomisation screening point).
+
+# do this in two stages:
+  # A) an indication of whether the clinician complied with the nudge or not
+
+  # B) an indication of whether there was unintended cross over from cpap to imv during the following 12 hour period
+
+
+# A.  Nudge compliance:
+
+# the possible options upon receipt of the first nudge randomisation are:
+
+  # 1. Compliance with the nudge (10%)
+
+  # 2. Non-compliance with the nudge (90%)
+
+# we could apply estimated values to both parts e.g. 10% compliance.
+
+# compliance with the nudge is not one-directional.  i.e. we might allocate a 10% compliance with the nudge, but it may be more if cpap and less if IMV depending on preferences.
+
+# for simplicity now, keep it as a single value for both treatment arms.  
+
+# as a starting point we will assume that in 90% of the eligible patients the clinician does not comply with the treatment recommendation.  
+
+# 3. Unintentional, one-way cross over from the cpap group to the IMV group due to patient deterioration.
+
+# apply estimated values for the above quantities:
+
+  # 1. 10% i.e. for 1 in 10 patients randomised, the 
+
+
+
 
 
 ```
