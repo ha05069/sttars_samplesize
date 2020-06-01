@@ -1,0 +1,220 @@
+---
+title: "STTARS_Simulation_6"
+author: "M Wilson"
+date: "25/05/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(naniar)
+```
+
+
+
+# Notes
+
+Re-draft from simulation script 5 to incorporate:
+
+1. Feedback from Ed:
+ - Incorporate evaluative function at end of sim - a statistical test which evaluates tx success or failure
+ - Abstract randomisation/equipoise sim steps into a separate function
+ - Add steps to simulate 1000s of times
+2. Slightly altered protocol 1
+3. New design proposed by Roma
+4. Write up in format suggested by @morris2019
+
+# Refs:
+
+https://github.com/DocEd/fragility-index/blob/master/code/fragility-sim.R
+http://arxiv.org/abs/1712.03198 (@morris2019)
+
+
+# Protocol 1 
+
+This is the original protocol put forward which suggests randomisation point every 12 hours.
+
+Re-doing the code with help from Ed's fragility sim study and additional notes from @morris2019 *(notes)*
+
+*Simulation studies are experiments which aim to obtain empirical results about the performance of statistical methods under specific conditions.*
+
+*There are multiple potential aims for a simulation study:*
+  *1. Investigate large or small sample size bias and evaluate precision.*
+  *2. Estimate variance of an estimand.*
+  *3. Test robustness to mis-specification.*
+  *4. Test proof of concept (is this method viable in this setting?).*
+  *5. Test method to breaking (this is the limit where this method fails).*
+
+
+## Aims
+
+To calculate an estimate of the sample size required to answer the study question, under a set series of assumptions.
+- Recruitment rates
+- Non-compliance rates
+
+To evaluate specific statistical methods' performances under the study's specific experimental conditions.
+- IV approach
+
+
+The idea behind the simulation is that you can generate data under a specific set of assumptions.  You get an output which you can apply the proposed statistical test to and then you can review what kind of output you get.  This can be repeated multiple times to generate estimates of uncertainty but also evaluated under varied assumptions, such as different sample sizes. 
+
+So this would first generate a dataset for say 1000 patients.  Apply the required assumptions and experimental conditions to them, e.g. sequential randomisation, cross-over, nudging etc and then produced a dataset for the primary outcome (14 day mortality and organ support Y|N) to which a statistical method may be applied.  The statistical test gives an indication of the probability of correctly rejecting the null hypothesis (in the case of NHST) and then an estimate of the uncertainty around that probability.  
+
+
+## Data Generating Mechanisms
+
+* *These define how random numbers are used to define a dataset.*
+* *These are mechanisms, not models (models being a class of DGMs).*
+
+*There are two main methods to generating data.  Either through repeated parametric draws from a known model, or repeated sampling with replacement from an existing dataset.  In the latter's case, the true DGM is unknown, as is the mechanism for the simulation data produced, but it does enable you to understand the sampling distribution of the known dataset.*
+
+In this case we have two potential options.  We could generate data from repeated sampling from a known model, or plumb in the data generated from the UCLH CPAP observational study and repeatedly resample from there.  In this first instance I will attempt to do the former.  
+
+
+## Estimands
+
+*What are the targets for the simulation study being designed, what are the required outputs? These will be mainly determined by the aims and the methods employed.*
+
+*Either focused on analysis (estimation, testing (NHST), model selection or prediction), or design.  In the case of experimental design, the target would be to select the best performing design, as evaluated by sample size, power/precision.*
+
+In this case we are looking to evaluate the design of our study and to obtain a sample size estimate under set degrees of power and precision, together with the required statistical methods.
+
+
+## Methods
+
+* *Dependent on aims.  Think about previous literature, applicability of the method to the estimand and the code used to conduct it.*
+
+* *If you compare two different methods, make sure the outputs are equivalent and comparable.*
+
+In this case the method would probably be to test a null hypothesis of no difference between two treatments, or conversely, a test of non-inferiority of CPAP over IMV. 
+
+*NB: simulation studies are empirical experiments so performance measures are estmated and therefore subject to error.  Therefore estimates of uncertainty should be presented and you need to consider how to choose the sample size for the simulation.*
+
+
+### Coding Considerations
+
+* *Use pseudo-random number generation, where the 'state' is set using a 'seed'.*
+* *Rules:*
+  * *Set the seed at the beginning and don't change it*
+  * *Store the state of the random number generation often e.g. for each repetition you want to store the state of the random number generation before and after for reference.  This avoids unintentional dependency between simulated datasets.*
+  
+
+
+```{r}
+set.seed(2019)
+```
+
+Take the beginning of the simulation to be after enrollment, screening and consent has been completed.  This means the participants have all been stabilised on CPAP and have started the first period of observation to the next handover point.
+
+All enter the study at different times, so time to first randomisation point will be slightly different for each participant, but can only be a maximum of 12 hours.
+
+
+```{r}
+# generate a sample dataset:
+
+n_pts <- c(1:100) # number of patients per simulation run
+x_at_0 <- rep(0, length(n_pts)) # state of patient at time zero
+  # 0 = cpap
+  # 1 = IMV
+  # 2 = simple O2
+x_at_12 <- sample(0:2,
+                  prob = c(0.9, 0.25, 0.25), # this will change at each time window to reflect the likely proportion of the sample being on each ventilator mode at a given point in time.
+                  size = length(n_pts), 
+                  replace = T)
+
+
+df <- 
+  tibble(
+    n_pts = n_pts, 
+    time_zero = sample(0:24, size = length(n_pts), replace = T),
+    x_at_0 = x_at_0,
+    x_at_12 = x_at_12)
+
+```
+
+```{r}
+# function to determine eligibility:
+
+# participants are eligible to be randomised at each 12 hour window if they remain on cpap (x = 0).
+
+eligible <- function(x, column) {
+  
+  # I want to create an new empty column for every existing column in the df 
+  # which starts with the string "x_at_" I want to name it with the "eligible_
+  # result_at_" and then append the same number belonging to the x_at column.
+  for (i in x) {
+    x <- 
+      x %>% 
+      mutate_at(. , 
+                vars(starts_with("x_at_")), 
+                funs(eligible_result = . ) )
+    
+    
+  }
+  
+  x$eligible_result <- 0 
+  
+  x %>% 
+    mutate(eligible_result = if_else(column == 0, TRUE, FALSE))
+}
+```
+
+```{r}
+eligible(df, x_at_12)
+
+df
+```
+
+
+
+```{r}
+# generate a tibble of basic patient data:
+
+pt_table <- function(n_pts = NULL,
+                     time_zero,
+                     n_days) {
+  # starting conditions:
+  if (n_pts < 2) {
+    rlang::abort(
+      "Not enough patients"
+    )
+  }
+  if (time_zero != class(as.POSIXct())) {
+    rlang::abort(
+      "Incorrect format for time_zero"
+    )
+  }
+  if (n_days < 1) {
+    rlang::abort(
+      "Length of stay too short"
+    )
+  }
+  
+  # create empty table:
+  
+  df <- tibble::tibble(
+    n_pts = as.list(NULL),
+    time_zero = as.list(NULL),
+    x_12 = as.list(NULL))
+                     }
+```
+
+
+
+
+```{r}
+# making into a function as we go along:
+# this function would take the number of participants as an input and then apply the stepwise assumptions to generate a dataset at the end
+# then a statistical test can be applied
+
+#' @param n_obs manual selection of total number of subjects per simulation
+#' @param n_sim number of simulations to run (default = 1000)
+
+
+sttars_sim <- 
+  function(n_obs = NULL,
+           n_sim = 1000,

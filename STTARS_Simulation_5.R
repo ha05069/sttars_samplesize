@@ -1,3 +1,6 @@
+library(tidyverse)
+library(naniar)
+
 # Aims:
 # Define participant flow through the study following the initial randomisation
 # Create a simulated data set to represent this study flow
