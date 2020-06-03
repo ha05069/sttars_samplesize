@@ -5,7 +5,6 @@
 # Libraries
 # install.packages('AER', 'ivpack', 'cowplot')
 library(AER)
-# library(ivpack)
 library(data.table)
 library(janitor)
 library(ggplot2)
@@ -35,8 +34,9 @@ nudges_
 # then think about how the cpap first variable is generated
 p_cpap_baseline <- 0.4 # prob cpap first at baseline
 p_cpap_nudge <- 0.6 # prob cpap first if nudged
-rbinom(n=N, size=1, prob=c(p_cpap_baseline, p_cpap_nudge))
 cpap_first <- function(nudge, p_cpap_baseline , p_cpap_nudge ){
+  # provide a vector of nudges and then select the prob of cpap based on that
+  # vector
   p <- ifelse(nudge, p_cpap_nudge, p_cpap_baseline)
   return(rbinom(length(p), size=1, prob=p))
 }
@@ -47,8 +47,8 @@ p_dead_baseline     <- 0.6 # 60% mortality baseline
 p_dead_cpap         <- 0.5 # 50% mortality with cpap first
 # survivor status: rbinom(n=N, size=1, prob=c(p_cpap_first,p_early_imv) )
 # where size refers to the number of bernoulli trials (1 per patient)
-rbinom(n=N, size=1, prob=c(p_dead_baseline,p_dead_cpap) )
 dead <- function(cpap_first, p_dead_baseline , p_dead_cpap ){
+  # provide a vector of treatment exposure; select the prob of death from that
   p <- ifelse(cpap_first, p_dead_cpap, p_dead_baseline)
   return(rbinom(n=length(p), size=1, prob=p))
 }
@@ -67,9 +67,10 @@ head(dt)
 dt
 
 
-gen_trial <- function(N,
+gen_trial <- function(N, # number of patients in trial
                       p_cpap_baseline, p_cpap_nudge,
                       p_dead_baseline, p_dead_cpap){
+  # wrap this all togethr in a single data generator
   dt <- data.table(id=1:N)
   dt[, nudge_cpap := nudge(.N)]
   dt[, cpap_first := cpap_first(nudge_cpap, p_cpap_baseline=p_cpap_baseline, p_cpap_nudge=p_cpap_nudge)]
@@ -78,7 +79,8 @@ gen_trial <- function(N,
   return(dt)
 }
 
-# Check with a single trial; seem to recover the baseline and treated mortality (perfect nudge)
+# Check with a single trial; seem to recover the baseline and treated mortality
+# (perfect nudge)
 N <- 1e4
 dt <- gen_trial(N, 
                 p_cpap_baseline = 0, p_cpap_nudge = 1,
@@ -100,7 +102,6 @@ res
 res$N <- N
 unlist(res)
 
-?try
 # Now evaluate a range of sample sizes
 ivreg_results <- function(N, 
                   p_cpap_baseline, p_cpap_nudge,
@@ -109,6 +110,8 @@ ivreg_results <- function(N,
   dt <- gen_trial(N, 
                   p_cpap_baseline = p_cpap_baseline, p_cpap_nudge = p_cpap_nudge,
                   p_dead_baseline = p_dead_baseline, p_dead_cpap = p_dead_cpap)
+  # added tryCatch here since ivreg sometimes will fail to 'converge' presumably
+  # b/c the combination of treatment, instrument and outcome is not identifiable
   m <- tryCatch(
     expr = {
       ivreg(dead ~ cpap_first | nudge_cpap, data=dt)
@@ -119,7 +122,6 @@ ivreg_results <- function(N,
       return(res)
       },
     error = function(e) {message(e)}
-    
   )
 }
 
@@ -133,6 +135,7 @@ Ns <- list(1e2,1e3,1e4)
 l <- lapply(Ns, ivreg_results,
               p_cpap_baseline = 0.3, p_cpap_nudge = 0.7,
               p_dead_baseline = 0.6, p_dead_cpap = 0.4)
+# trick to combine list of data.tables into a single data.table
 rbindlist(lapply(l, stack), idcol = TRUE)
 
 # Now evaluate over a range of sample sizes
@@ -159,6 +162,7 @@ gen_trial_by_nudge <- function(Ns, nudges, p_cpap_baseline=0.5){
     l <- lapply(Ns, ivreg_results,
                   p_cpap_baseline = p_cpap_baseline, p_cpap_nudge = p_cpap_nudge,
                   p_dead_baseline = 0.55, p_dead_cpap = 0.45)
+    # wrap in tryCatch else it fails when the returned data.table is empty
     tryCatch(
       expr = {
         dt <- rbindlist(lapply(l, stack), idcol = TRUE)
@@ -176,9 +180,11 @@ gen_trial_by_nudge <- function(Ns, nudges, p_cpap_baseline=0.5){
     
 }
 
+# Finally generate a df of different sample sizes with diff nudge compliance
 Ns <- seq(50,4000,50)
 nudges <- seq(-0.0,+0.30,0.02)
 dt <- gen_trial_by_nudge(Ns, nudges)
+# cast wide for ggplot
 dt <- dcast.data.table(dt, .id + p_nudge_delta ~ ind, value.var = 'values')
 
 ggplot(dt, aes(x=(N), y=Estimate)) + 
